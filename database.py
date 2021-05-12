@@ -144,3 +144,70 @@ def destroy_db(database_name):
     """
     print('Database destroyed.\n')
     plyvel.destroy_db(database_name)
+
+##################### Test #################################
+def weighted_search_signatures(self, neighborhood):
+        """
+        Search in database given a list of signatures. Return top NUMBER_OF_MATCHES mathced files.
+        """
+        matched_files = {}
+        total_signatures = 0
+        weighted_signatures = {} 
+        weighted_total = 0
+        # Iterate over all signatures of the file
+        for _, hashes_lst in neighborhood.items():
+            for sig in hashes_lst:
+                filehashes_lst = self.signatures_db.get(sig)
+                if filehashes_lst is None:
+                    continue
+                anchor_hashes_lst = self.anchors_db.get(sig)
+                # Get the list of filenames. Split by HASH_DIGEST_SIZE bytes.
+                filehashes_lst = [ filehashes_lst[i * _hp.HASH_DIGEST_SIZE:(i + 1) * _hp.HASH_DIGEST_SIZE] for i in range((len(filehashes_lst) + _hp.HASH_DIGEST_SIZE - 1) // _hp.HASH_DIGEST_SIZE ) ]
+                # Get the list of anchor hashes that . Split by HASH_DIGEST_SIZE bytes.
+                anchor_hashes_lst = [ anchor_hashes_lst[i * _hp.HASH_DIGEST_SIZE:(i + 1) * _hp.HASH_DIGEST_SIZE] for i in range((len(anchor_hashes_lst) + _hp.HASH_DIGEST_SIZE - 1) // _hp.HASH_DIGEST_SIZE ) ]
+                # for filename_hash in filehashes_lst:
+                for i in range(len(filehashes_lst)):
+                    filename_hash = filehashes_lst[i]
+                    filename = self.filenames_db.get(filename_hash).decode("utf-8")
+                    anchor_hash = anchor_hashes_lst[i]
+                    # If this is the first hash for that filename create a new inner dict
+                    if filename not in matched_files:
+                        matched_files[filename] = {}
+                        matched_files[filename]['total'] = 1
+                    # Count occurences
+                    if anchor_hash not in matched_files[filename]:
+                        matched_files[filename][anchor_hash] = []
+                        matched_files[filename]['anchors_matched'] = 0
+                    matched_files[filename][anchor_hash].append(sig)
+                    matched_files[filename]['total'] += 1
+                total_signatures += 1
+                weighted_signatures[sig] = 1/len(filehashes_lst)
+                weighted_total += 1/len(filehashes_lst)
+        # Check how many signatures and neighborhoods matched
+        anchor_matches = {}
+        signatures_matches = {}
+        signatures_dict = {}
+        for filename, anchors in matched_files.items():
+            signatures_dict[filename] = {}
+            signatures_dict[filename]['total'] = matched_files[filename]['total']
+            sig_total = 0
+            # for each anchor and the hashes in its neighborhood
+            for anch, sigs in anchors.items():
+                # Skip the counters
+                if anch == 'anchors_matched' or anch == 'total':
+                    continue
+                if len(sigs) >= _hp.MIN_SIGNATURES_TO_MATCH:
+                    matched_files[filename]['anchors_matched'] += 1
+                for s in sigs:
+                    signatures_dict[filename][s] = 1
+                    sig_total += float(weighted_signatures[sig])
+            anchor_matches[filename] = anchors['anchors_matched'] / len(neighborhood)
+            signatures_matches[filename] = sig_total / weighted_total#(signatures_dict[filename]['weight'] - 2) / weighted_signatures
+        # Find top-K matches with 2 different criteria.
+        anchor_matches = sorted(anchor_matches.items(), key=lambda x: x[1], reverse=True)[:_hp.NUMBER_OF_MATCHES]
+        signatures_matches[filename] = (len(signatures_dict[filename]) - 2) / total_signatures
+        # return lists of tuples
+        _hp.normalize(anchor_matches)
+        # _hp.normalize(signatures_matches)
+        return anchor_matches, signatures_matches
+
